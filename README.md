@@ -61,4 +61,4 @@ All other ports cannot be changed by Java SDK, there are sadly fixed :
 So if you disable Query, Search and Analytic service, you can run multiple instance of this container, otherwise, you're stuck with one instance, for now.
 
 ---
-[![Build Status](https://travis-ci.org/differentway/testcontainers-java-module-couchbase.svg?branch=master)](https://travis-ci.org/differentway/testcontainers-java-module-couchbase) [![Licence](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/differentway/testcontainers-java-module-couchbase/blob/master/LICENSE)
+[![Build Status](https://travis-ci.org/differentway/testcontainers-java-module-couchbase.svg?branch=master)](https://travis-ci.org/differentway/testcontainers-java-module-couchbase) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.differentway/couchbase-testcontainer/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.github.differentway/couchbase-testcontainer) [![Licence](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/differentway/testcontainers-java-module-couchbase/blob/master/LICENSE)
