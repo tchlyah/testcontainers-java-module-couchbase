@@ -46,6 +46,23 @@ import java.util.*;
 @AllArgsConstructor
 public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends GenericContainer<SELF> {
 
+    //<editor-fold desc="Ports">
+    private static final int BINARY_PORT = 11210;
+    private static final int BINARY_SSL_PORT = 11207;
+    private static final int CONFIG_PORT = 8091;
+    private static final int CONFIG_SSL_PORT = 18091;
+    private static final int VIEW_PORT = 8092;
+    private static final int VIEW_SSL_PORT = 18092;
+    private static final int QUERY_PORT = 8093;
+    private static final int QUERY_SSL_PORT = 18093;
+    private static final int SEARCH_PORT = 8094;
+    private static final int SEARCH_SSL_PORT = 18094;
+    //</editor-fold>
+
+    @Getter
+    @Wither
+    private boolean ssl = false;
+
     @Wither
     private String memoryQuota = "300";
 
@@ -113,13 +130,29 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
 
     @Override
     protected Integer getLivenessCheckPort() {
-        return getMappedPort(8091);
+        return getMappedPort(CONFIG_PORT);
     }
 
     @Override
     protected void configure() {
         // Configurable ports
-        addExposedPorts(8091, 18091, 8092, 18092, 8093, 18093, 8094, 18094, 8095, 18095, 11207, 11210, 11211);
+        if (isSsl()) {
+            addExposedPorts(CONFIG_SSL_PORT, VIEW_SSL_PORT, BINARY_SSL_PORT);
+        } else {
+            addExposedPorts(CONFIG_PORT, VIEW_PORT, BINARY_PORT);
+        }
+        if (isQuery()) {
+            addExposedPort(QUERY_PORT);
+            if (isSsl()) {
+                addExposedPort(QUERY_SSL_PORT);
+            }
+        }
+        if (isFts()) {
+            addExposedPort(SEARCH_PORT);
+            if (isSsl()) {
+                addExposedPort(SEARCH_SSL_PORT);
+            }
+        }
         setWaitStrategy(new HttpWaitStrategy().forPath("/ui/index.html#/"));
     }
 
@@ -129,7 +162,7 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     }
 
     public void initCluster() {
-        urlBase = String.format("http://%s:%s", getContainerIpAddress(), getMappedPort(8091));
+        urlBase = String.format("http://%s:%s", getContainerIpAddress(), getMappedPort(CONFIG_PORT));
         try {
             String poolURL = "/pools/default";
             String poolPayload = "memoryQuota=" + URLEncoder.encode(memoryQuota, "UTF-8") + "&indexMemoryQuota=" + URLEncoder.encode(indexMemoryQuota, "UTF-8");
@@ -237,34 +270,45 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
 
     private DefaultCouchbaseEnvironment createCouchbaseEnvironment() {
         initCluster();
-        return DefaultCouchbaseEnvironment.builder()
-                .bootstrapCarrierDirectPort(getMappedPort(11210))
-                .bootstrapCarrierSslPort(getMappedPort(11207))
-                .bootstrapHttpDirectPort(getMappedPort(8091))
-                .bootstrapHttpSslPort(getMappedPort(18091))
-                .build();
+        DefaultCouchbaseEnvironment.Builder builder = DefaultCouchbaseEnvironment.builder()
+                .sslEnabled(ssl);
+        if (isSsl()) {
+            builder
+                    .bootstrapCarrierSslPort(getMappedPort(BINARY_SSL_PORT))
+                    .bootstrapHttpSslPort(getMappedPort(CONFIG_SSL_PORT));
+        } else {
+            builder
+                    .bootstrapCarrierDirectPort(getMappedPort(BINARY_PORT))
+                    .bootstrapHttpDirectPort(getMappedPort(CONFIG_PORT));
+        }
+        return builder.build();
     }
 
     private PortInfo createPortInfo() {
         DefaultPortInfo portInfo = new DefaultPortInfo(new HashMap<>(), null);
         try {
-            portInfo.ports().put(ServiceType.VIEW, getMappedPort(8092));
-            portInfo.sslPorts().put(ServiceType.VIEW, getMappedPort(18092));
-            portInfo.ports().put(ServiceType.CONFIG, getMappedPort(8091));
-            portInfo.sslPorts().put(ServiceType.CONFIG, getMappedPort(18091));
-            portInfo.ports().put(ServiceType.BINARY, getMappedPort(11210));
-            portInfo.sslPorts().put(ServiceType.BINARY, getMappedPort(11207));
+            portInfo.ports().put(ServiceType.VIEW, getMappedPort(VIEW_PORT));
+            portInfo.ports().put(ServiceType.CONFIG, getMappedPort(CONFIG_PORT));
+            portInfo.ports().put(ServiceType.BINARY, getMappedPort(BINARY_PORT));
+            if (isSsl()) {
+                portInfo.sslPorts().put(ServiceType.BINARY, getMappedPort(BINARY_SSL_PORT));
+                portInfo.sslPorts().put(ServiceType.CONFIG, getMappedPort(CONFIG_SSL_PORT));
+                portInfo.sslPorts().put(ServiceType.VIEW, getMappedPort(VIEW_SSL_PORT));
+            }
             if (isQuery()) {
-                portInfo.ports().put(ServiceType.QUERY, getMappedPort(8093));
-                portInfo.sslPorts().put(ServiceType.QUERY, getMappedPort(18093));
+                portInfo.ports().put(ServiceType.QUERY, getMappedPort(QUERY_PORT));
+                if (isSsl()) {
+                    portInfo.sslPorts().put(ServiceType.QUERY, getMappedPort(QUERY_SSL_PORT));
+                }
             }
-            if(isFts()) {
-                portInfo.ports().put(ServiceType.SEARCH, getMappedPort(8094));
-                portInfo.sslPorts().put(ServiceType.SEARCH, getMappedPort(18094));
+            if (isFts()) {
+                portInfo.ports().put(ServiceType.SEARCH, getMappedPort(SEARCH_PORT));
+                if (isSsl()) {
+                    portInfo.sslPorts().put(ServiceType.SEARCH, getMappedPort(SEARCH_SSL_PORT));
+                }
             }
-
         } catch (IllegalStateException e) {
-            logger().warn("Container not started yet");
+            logger().warn(e.getMessage());
         }
         return portInfo;
     }
