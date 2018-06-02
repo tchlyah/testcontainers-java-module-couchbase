@@ -15,6 +15,9 @@
  */
 package org.testcontainers.couchbase;
 
+import com.couchbase.client.core.config.DefaultPortInfo;
+import com.couchbase.client.core.config.PortInfo;
+import com.couchbase.client.core.service.ServiceType;
 import com.couchbase.client.core.utils.Base64;
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.CouchbaseCluster;
@@ -33,9 +36,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Based on Laurent Doguin version
@@ -91,16 +92,23 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     @Getter(lazy = true)
     private final CouchbaseCluster couchbaseCluster = createCouchbaseCluster();
 
+    @Getter
+    private static final Collection<CouchbaseContainer> containers = new HashSet<>();
+
+    @Getter(lazy = true)
+    private final PortInfo portInfo = createPortInfo();
+
     private List<BucketSettings> newBuckets = new ArrayList<>();
 
     private String urlBase;
 
     public CouchbaseContainer() {
-        super("couchbase/server:latest");
+        this("couchbase/server:latest");
     }
 
     public CouchbaseContainer(String containerName) {
         super(containerName);
+        containers.add(this);
     }
 
     @Override
@@ -111,15 +119,7 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     @Override
     protected void configure() {
         // Configurable ports
-        addExposedPorts(11210, 11207, 8091, 18091);
-
-        // Non configurable ports
-        addFixedExposedPort(8092, 8092);
-        addFixedExposedPort(8093, 8093);
-        addFixedExposedPort(8094, 8094);
-        addFixedExposedPort(8095, 8095);
-        addFixedExposedPort(18092, 18092);
-        addFixedExposedPort(18093, 18093);
+        addExposedPorts(8091, 18091, 8092, 18092, 8093, 18093, 8094, 18094, 8095, 18095, 11207, 11210, 11211);
         setWaitStrategy(new HttpWaitStrategy().forPath("/ui/index.html#/"));
     }
 
@@ -243,5 +243,29 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
                 .bootstrapHttpDirectPort(getMappedPort(8091))
                 .bootstrapHttpSslPort(getMappedPort(18091))
                 .build();
+    }
+
+    private PortInfo createPortInfo() {
+        DefaultPortInfo portInfo = new DefaultPortInfo(new HashMap<>(), null);
+        try {
+            portInfo.ports().put(ServiceType.VIEW, getMappedPort(8092));
+            portInfo.sslPorts().put(ServiceType.VIEW, getMappedPort(18092));
+            portInfo.ports().put(ServiceType.CONFIG, getMappedPort(8091));
+            portInfo.sslPorts().put(ServiceType.CONFIG, getMappedPort(18091));
+            portInfo.ports().put(ServiceType.BINARY, getMappedPort(11210));
+            portInfo.sslPorts().put(ServiceType.BINARY, getMappedPort(11207));
+            if (isQuery()) {
+                portInfo.ports().put(ServiceType.QUERY, getMappedPort(8093));
+                portInfo.sslPorts().put(ServiceType.QUERY, getMappedPort(18093));
+            }
+            if(isFts()) {
+                portInfo.ports().put(ServiceType.SEARCH, getMappedPort(8094));
+                portInfo.sslPorts().put(ServiceType.SEARCH, getMappedPort(18094));
+            }
+
+        } catch (IllegalStateException e) {
+            logger().warn("Container not started yet");
+        }
+        return portInfo;
     }
 }
