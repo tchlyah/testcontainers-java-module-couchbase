@@ -57,6 +57,8 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     private static final int QUERY_SSL_PORT = 18093;
     private static final int SEARCH_PORT = 8094;
     private static final int SEARCH_SSL_PORT = 18094;
+    private static final int ANALYTICS_PORT = 8095;
+    private static final int ANALYTICS_SSL_PORT = 18095;
     //</editor-fold>
 
     @Getter
@@ -93,6 +95,10 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     @Getter
     @Wither
     private boolean fts = false;
+
+    @Getter
+    @Wither
+    private boolean analytics = false;
 
     @Wither
     private boolean beerSample = false;
@@ -153,6 +159,12 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
                 addExposedPort(SEARCH_SSL_PORT);
             }
         }
+        if (isAnalytics()) {
+            addExposedPort(ANALYTICS_PORT);
+            if (isSsl()) {
+                addExposedPort(ANALYTICS_SSL_PORT);
+            }
+        }
         setWaitStrategy(new HttpWaitStrategy().forPath("/ui/index.html#/"));
     }
 
@@ -180,6 +192,9 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
             }
             if (fts) {
                 servicePayloadBuilder.append("fts,");
+            }
+            if (analytics) {
+                servicePayloadBuilder.append("cbas,");
             }
             String setupServiceContent = "services=" + URLEncoder.encode(servicePayloadBuilder.toString(), "UTF-8");
 
@@ -305,6 +320,12 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
                 portInfo.ports().put(ServiceType.SEARCH, getMappedPort(SEARCH_PORT));
                 if (isSsl()) {
                     portInfo.sslPorts().put(ServiceType.SEARCH, getMappedPort(SEARCH_SSL_PORT));
+                }
+            }
+            if (isAnalytics()) {
+                portInfo.ports().put(ServiceType.ANALYTICS, getMappedPort(ANALYTICS_PORT));
+                if (isSsl()) {
+                    portInfo.sslPorts().put(ServiceType.ANALYTICS, getMappedPort(ANALYTICS_SSL_PORT));
                 }
             }
         } catch (IllegalStateException e) {
