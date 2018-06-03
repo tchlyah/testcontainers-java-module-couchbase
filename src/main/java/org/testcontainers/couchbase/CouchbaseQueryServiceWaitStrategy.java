@@ -23,12 +23,11 @@ public class CouchbaseQueryServiceWaitStrategy extends GenericContainer.Abstract
 
     public CouchbaseQueryServiceWaitStrategy(Bucket bucket) {
         this.bucket = bucket;
-        startupTimeout = Duration.ofSeconds(120);
     }
 
     @Override
     protected void waitUntilReady() {
-        logger().info("Waiting for {} seconds for QUERY service", startupTimeout.getSeconds());
+        logger().info("Waiting {} seconds for QUERY service", startupTimeout.getSeconds());
 
         // try to connect to the URL
         try {
@@ -47,7 +46,7 @@ public class CouchbaseQueryServiceWaitStrategy extends GenericContainer.Abstract
                 return true;
             });
         } catch (TimeoutException e) {
-            throw new ContainerLaunchException("Timed out waiting for QUERY service");
+            throw new ContainerLaunchException("Timeout waiting for QUERY service");
         }
     }
 }

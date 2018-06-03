@@ -17,6 +17,9 @@ package org.testcontainers.couchbase;
 
 import com.couchbase.client.deps.com.fasterxml.jackson.databind.JsonNode;
 import com.couchbase.client.deps.com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
+import lombok.experimental.Wither;
 import org.rnorth.ducttape.TimeoutException;
 import org.testcontainers.containers.ContainerLaunchException;
 import org.testcontainers.containers.GenericContainer;
@@ -29,13 +32,17 @@ import java.net.URI;
 import java.net.URL;
 import java.util.concurrent.TimeUnit;
 
+import static java.net.HttpURLConnection.HTTP_OK;
+import static lombok.AccessLevel.PRIVATE;
 import static org.rnorth.ducttape.unreliables.Unreliables.retryUntilSuccess;
 
 /**
  * @author ldoguin
  * created on 18/07/16.
  */
-public class CouchbaseWaitStrategy extends GenericContainer.AbstractWaitStrategy {
+@NoArgsConstructor
+@AllArgsConstructor(access = PRIVATE)
+public class CouchbaseNodeWaitStrategy extends GenericContainer.AbstractWaitStrategy {
     /**
      * Authorization HTTP header.
      */
@@ -46,35 +53,16 @@ public class CouchbaseWaitStrategy extends GenericContainer.AbstractWaitStrategy
      */
     private static final String AUTH_BASIC = "Basic ";
 
-    private String path = "/pools/default/";
-    private int statusCode = HttpURLConnection.HTTP_OK;
-    private boolean tlsEnabled;
+    private static final String PATH = "/pools/default/";
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    @Wither
+    private boolean ssl;
+    @Wither
     private String username;
+    @Wither
     private String password;
-    private ObjectMapper om = new ObjectMapper();
-
-    /**
-     * Indicates that the status check should use HTTPS.
-     *
-     * @return this
-     */
-    public CouchbaseWaitStrategy usingTls() {
-        this.tlsEnabled = true;
-        return this;
-    }
-
-    /**
-     * Authenticate with HTTP Basic Authorization credentials.
-     *
-     * @param username the username
-     * @param password the password
-     * @return this
-     */
-    public CouchbaseWaitStrategy withBasicCredentials(String username, String password) {
-        this.username = username;
-        this.password = password;
-        return this;
-    }
 
     @Override
     protected void waitUntilReady() {
@@ -85,7 +73,7 @@ public class CouchbaseWaitStrategy extends GenericContainer.AbstractWaitStrategy
         }
 
         final String uri = buildLivenessUri(livenessCheckPort).toString();
-        logger().info("Waiting for {} seconds for URL: {}", startupTimeout.getSeconds(), uri);
+        logger().info("Waiting {} seconds for nodes to be healthy", startupTimeout.getSeconds());
 
         // try to connect to the URL
         try {
@@ -103,16 +91,16 @@ public class CouchbaseWaitStrategy extends GenericContainer.AbstractWaitStrategy
                         connection.setRequestMethod("GET");
                         connection.connect();
 
-                        if (statusCode != connection.getResponseCode()) {
+                        if (HTTP_OK != connection.getResponseCode()) {
                             throw new RuntimeException(String.format("HTTP response code was: %s",
                                     connection.getResponseCode()));
                         }
 
                         // Specific Couchbase wait strategy to be sure the node is online and healthy
-                        JsonNode node = om.readTree(connection.getInputStream());
+                        JsonNode node = OBJECT_MAPPER.readTree(connection.getInputStream());
                         JsonNode statusNode = node.at("/nodes/0/status");
                         String status = statusNode.asText();
-                        if (!"healthy".equals(status)){
+                        if (!"healthy".equals(status)) {
                             throw new RuntimeException(String.format("Couchbase Node status was: %s", status));
                         }
 
@@ -125,7 +113,7 @@ public class CouchbaseWaitStrategy extends GenericContainer.AbstractWaitStrategy
 
         } catch (TimeoutException e) {
             throw new ContainerLaunchException(String.format(
-                    "Timed out waiting for URL to be accessible (%s should return HTTP %s)", uri, statusCode));
+                    "Timeout waiting for URL to be accessible (%s should return HTTP %s)", uri, HTTP_OK));
         }
     }
 
@@ -136,17 +124,17 @@ public class CouchbaseWaitStrategy extends GenericContainer.AbstractWaitStrategy
      * @return the liveness URI
      */
     private URI buildLivenessUri(int livenessCheckPort) {
-        final String scheme = (tlsEnabled ? "https" : "http") + "://";
+        final String scheme = (ssl ? "https" : "http") + "://";
         final String host = container.getContainerIpAddress();
 
         final String portSuffix;
-        if ((tlsEnabled && 443 == livenessCheckPort) || (!tlsEnabled && 80 == livenessCheckPort)) {
+        if ((ssl && 443 == livenessCheckPort) || (!ssl && 80 == livenessCheckPort)) {
             portSuffix = "";
         } else {
             portSuffix = ":" + String.valueOf(livenessCheckPort);
         }
 
-        return URI.create(scheme + host + portSuffix + path);
+        return URI.create(scheme + host + portSuffix + PATH);
     }
 
     /**

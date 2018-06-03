@@ -26,8 +26,11 @@ import com.couchbase.client.java.env.CouchbaseEnvironment;
 import com.couchbase.client.java.env.DefaultCouchbaseEnvironment;
 import com.couchbase.client.java.query.Index;
 import lombok.AllArgsConstructor;
+import lombok.Cleanup;
 import lombok.Getter;
+import lombok.SneakyThrows;
 import lombok.experimental.Wither;
+import org.jetbrains.annotations.NotNull;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.HttpWaitStrategy;
 
@@ -60,6 +63,7 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     private static final int ANALYTICS_PORT = 8095;
     private static final int ANALYTICS_SSL_PORT = 18095;
     //</editor-fold>
+    public static final String DELIMITER = ",";
 
     @Getter
     @Wither
@@ -115,6 +119,9 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     @Getter(lazy = true)
     private final CouchbaseCluster couchbaseCluster = createCouchbaseCluster();
 
+    @Getter(lazy = true)
+    private final CouchbaseNodeWaitStrategy couchbaseNodeWaitStrategy = createCouchbaseWaitStrategy();
+
     @Getter
     private static final Collection<CouchbaseContainer> containers = new HashSet<>();
 
@@ -123,7 +130,8 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
 
     private List<BucketSettings> newBuckets = new ArrayList<>();
 
-    private String urlBase;
+    @Getter(lazy = true)
+    private final String urlBase = createUrlBase();
 
     public CouchbaseContainer() {
         this("couchbase/server:latest");
@@ -136,7 +144,7 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
 
     @Override
     protected Integer getLivenessCheckPort() {
-        return getMappedPort(CONFIG_PORT);
+        return isSsl() ? getMappedPort(CONFIG_SSL_PORT) : getMappedPort(CONFIG_PORT);
     }
 
     @Override
@@ -165,7 +173,8 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
                 addExposedPort(ANALYTICS_SSL_PORT);
             }
         }
-        setWaitStrategy(new HttpWaitStrategy().forPath("/ui/index.html#/"));
+        HttpWaitStrategy waitStrategy = new HttpWaitStrategy().forPath("/ui/index.html#/");
+        setWaitStrategy(ssl ? waitStrategy.usingTls() : waitStrategy);
     }
 
     public SELF withNewBucket(BucketSettings bucketSettings) {
@@ -173,68 +182,92 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
         return self();
     }
 
-    public void initCluster() {
-        urlBase = String.format("http://%s:%s", getContainerIpAddress(), getMappedPort(CONFIG_PORT));
-        try {
-            String poolURL = "/pools/default";
-            String poolPayload = "memoryQuota=" + URLEncoder.encode(memoryQuota, "UTF-8") + "&indexMemoryQuota=" + URLEncoder.encode(indexMemoryQuota, "UTF-8");
+    @SneakyThrows
+    public void init() {
+        initCluster();
+        initServices();
+        initAdminUser();
+        initSampleBuckets();
+        this.getCouchbaseNodeWaitStrategy().waitUntilReady(this);
+        initIndexes();
+        this.getCouchbaseNodeWaitStrategy().waitUntilReady(this);
+    }
 
-            String setupServicesURL = "/node/controller/setupServices";
-            StringBuilder servicePayloadBuilder = new StringBuilder();
-            if (keyValue) {
-                servicePayloadBuilder.append("kv,");
-            }
-            if (query) {
-                servicePayloadBuilder.append("n1ql,");
-            }
-            if (index) {
-                servicePayloadBuilder.append("index,");
-            }
-            if (fts) {
-                servicePayloadBuilder.append("fts,");
-            }
-            if (analytics) {
-                servicePayloadBuilder.append("cbas,");
-            }
-            String setupServiceContent = "services=" + URLEncoder.encode(servicePayloadBuilder.toString(), "UTF-8");
+    private void initCluster() throws IOException {
+        logger().debug("Initializing couchbase cluster");
+        String poolURL = "/pools/default";
+        String poolPayload = "memoryQuota=" + URLEncoder.encode(memoryQuota, "UTF-8") + "&indexMemoryQuota=" + URLEncoder.encode(indexMemoryQuota, "UTF-8");
+        callCouchbaseRestAPI(poolURL, poolPayload);
+    }
 
-            String webSettingsURL = "/settings/web";
-            String webSettingsContent = "username=" + URLEncoder.encode(clusterUsername, "UTF-8") + "&password=" + URLEncoder.encode(clusterPassword, "UTF-8") + "&port=8091";
+    private void initServices() throws IOException {
+        StringJoiner services = new StringJoiner(DELIMITER);
+        if (keyValue) {
+            services.add("kv");
+        }
+        if (query) {
+            services.add("n1ql");
+        }
+        if (index) {
+            services.add("index");
+        }
+        if (fts) {
+            services.add("fts");
+        }
+        if (analytics) {
+            services.add("cbas");
+        }
+        logger().debug("Initializing services : {}", services.toString());
+        callCouchbaseRestAPI("/node/controller/setupServices", "services=" + URLEncoder.encode(services.toString(), "UTF-8"));
+    }
 
-            String bucketURL = "/sampleBuckets/install";
+    private void initAdminUser() throws IOException {
+        logger().debug("Creating cluster admin user '{}'", clusterUsername);
+        callCouchbaseRestAPI("/settings/web",
+                "username=" + URLEncoder.encode(clusterUsername, "UTF-8") + "&password=" + URLEncoder.encode(clusterPassword, "UTF-8") + "&port=8091");
+    }
 
-            StringBuilder sampleBucketPayloadBuilder = new StringBuilder();
-            sampleBucketPayloadBuilder.append('[');
-            if (travelSample) {
-                sampleBucketPayloadBuilder.append("\"travel-sample\",");
-            }
-            if (beerSample) {
-                sampleBucketPayloadBuilder.append("\"beer-sample\",");
-            }
-            if (gamesIMSample) {
-                sampleBucketPayloadBuilder.append("\"gamesim-sample\",");
-            }
-            sampleBucketPayloadBuilder.append(']');
-
-            callCouchbaseRestAPI(poolURL, poolPayload);
-            callCouchbaseRestAPI(setupServicesURL, setupServiceContent);
-            callCouchbaseRestAPI(webSettingsURL, webSettingsContent);
-            callCouchbaseRestAPI(bucketURL, sampleBucketPayloadBuilder.toString());
-
-            CouchbaseWaitStrategy s = new CouchbaseWaitStrategy();
-            s.withBasicCredentials(clusterUsername, clusterPassword);
-            s.waitUntilReady(this);
-            callCouchbaseRestAPI("/settings/indexes", "indexerThreads=0&logLevel=info&maxRollbackPoints=5&storageMode=memory_optimized");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+    private void initSampleBuckets() throws IOException {
+        StringJoiner sampleBucketPayload = new StringJoiner(DELIMITER);
+        if (travelSample) {
+            sampleBucketPayload.add("\"travel-sample\"");
+        }
+        if (beerSample) {
+            sampleBucketPayload.add("\"beer-sample\"");
+        }
+        if (gamesIMSample) {
+            sampleBucketPayload.add("\"gamesim-sample\"");
+        }
+        if (sampleBucketPayload.length() != 0) {
+            logger().debug("Initialize sample buckets {}", sampleBucketPayload.toString());
+            callCouchbaseRestAPI("/sampleBuckets/install", "[" + sampleBucketPayload.toString() + "]");
         }
     }
 
+    private void initIndexes() throws IOException {
+        logger().debug("Activate memory optimized index");
+        callCouchbaseRestAPI("/settings/indexes", "indexerThreads=0&logLevel=info&maxRollbackPoints=5&storageMode=memory_optimized");
+    }
+
+    private String createUrlBase() {
+        return String.format((ssl ? "https" : "http") + "://%s:%s", getContainerIpAddress(), getMappedPort(CONFIG_PORT));
+    }
+
+    @NotNull
+    private CouchbaseNodeWaitStrategy createCouchbaseWaitStrategy() {
+        return new CouchbaseNodeWaitStrategy()
+                .withUsername(clusterUsername)
+                .withPassword(clusterPassword)
+                .withSsl(ssl);
+    }
+
     public void createBucket(BucketSettings bucketSetting, boolean primaryIndex) {
+        logger().debug("Creating bucket {}", bucketSetting.name());
         ClusterManager clusterManager = getCouchbaseCluster().clusterManager(clusterUsername, clusterPassword);
         // Insert Bucket
         BucketSettings bucketSettings = clusterManager.insertBucket(bucketSetting);
         // Insert Bucket admin user
+        logger().debug("Creating bucket admin user '{}'", bucketSetting.name());
         UserSettings userSettings = UserSettings.build()
                 .password(bucketSetting.password())
                 .roles(Collections.singletonList(new UserRole("bucket_admin", bucketSetting.name())));
@@ -243,17 +276,20 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
         } catch (Exception e) {
             logger().warn("Unable to insert user '" + bucketSetting.name() + "', maybe you are using older version");
         }
+        this.getCouchbaseNodeWaitStrategy().waitUntilReady(this);
         if (index) {
             Bucket bucket = getCouchbaseCluster().openBucket(bucketSettings.name(), bucketSettings.password());
             new CouchbaseQueryServiceWaitStrategy(bucket).waitUntilReady(this);
             if (primaryIndex) {
+                logger().debug("Creating primary index");
                 bucket.query(Index.createPrimaryIndex().on(bucketSetting.name()));
             }
         }
     }
 
     public void callCouchbaseRestAPI(String url, String payload) throws IOException {
-        String fullUrl = urlBase + url;
+        String fullUrl = getUrlBase() + url;
+        @Cleanup(value = "disconnect")
         HttpURLConnection httpConnection = (HttpURLConnection) ((new URL(fullUrl).openConnection()));
         httpConnection.setDoOutput(true);
         httpConnection.setRequestMethod("POST");
@@ -261,17 +297,17 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
                 "application/x-www-form-urlencoded");
         String encoded = Base64.encode((clusterUsername + ":" + clusterPassword).getBytes("UTF-8"));
         httpConnection.setRequestProperty("Authorization", "Basic " + encoded);
+        @Cleanup
         DataOutputStream out = new DataOutputStream(httpConnection.getOutputStream());
         out.writeBytes(payload);
         out.flush();
-        out.close();
         httpConnection.getResponseCode();
-        httpConnection.disconnect();
     }
 
     @Override
     public void start() {
         super.start();
+        init();
         if (!newBuckets.isEmpty()) {
             for (BucketSettings bucketSetting : newBuckets) {
                 createBucket(bucketSetting, primaryIndex);
@@ -284,7 +320,6 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     }
 
     private DefaultCouchbaseEnvironment createCouchbaseEnvironment() {
-        initCluster();
         DefaultCouchbaseEnvironment.Builder builder = DefaultCouchbaseEnvironment.builder()
                 .sslEnabled(ssl);
         if (isSsl()) {
