@@ -19,6 +19,7 @@ import com.couchbase.client.core.logging.CouchbaseLogger;
 import com.couchbase.client.core.logging.CouchbaseLoggerFactory;
 import com.couchbase.client.core.service.ServiceType;
 import com.couchbase.client.core.utils.NetworkAddress;
+import com.couchbase.client.deps.com.fasterxml.jackson.annotation.JacksonInject;
 import com.couchbase.client.deps.com.fasterxml.jackson.annotation.JsonCreator;
 import com.couchbase.client.deps.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.couchbase.client.deps.com.fasterxml.jackson.annotation.JsonProperty;
@@ -27,6 +28,7 @@ import org.testcontainers.couchbase.CouchbaseContainer;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.couchbase.client.core.logging.RedactableArgument.meta;
 import static com.couchbase.client.core.logging.RedactableArgument.system;
 
 /**
@@ -50,25 +52,27 @@ public class DefaultCouchbaseBucketConfig extends AbstractBucketConfig implement
     /**
      * Creates a new {@link CouchbaseBucketConfig}.
      *
-     * @param rev           the revision of the config.
-     * @param name          the name of the bucket.
-     * @param uri           the URI for this bucket.
-     * @param streamingUri  the streaming URI for this bucket.
+     * @param rev the revision of the config.
+     * @param name the name of the bucket.
+     * @param uri the URI for this bucket.
+     * @param streamingUri the streaming URI for this bucket.
      * @param partitionInfo partition info for this bucket.
-     * @param nodeInfos     related node information.
-     * @param portInfos     port info for the nodes, including services.
+     * @param nodeInfos related node information.
+     * @param portInfos port info for the nodes, including services.
      */
     @JsonCreator
     public DefaultCouchbaseBucketConfig(
             @JsonProperty("rev") long rev,
+            @JsonProperty("uuid") String uuid,
             @JsonProperty("name") String name,
             @JsonProperty("uri") String uri,
             @JsonProperty("streamingUri") String streamingUri,
             @JsonProperty("vBucketServerMap") CouchbasePartitionInfo partitionInfo,
             @JsonProperty("nodes") List<NodeInfo> nodeInfos,
             @JsonProperty("nodesExt") List<PortInfo> portInfos,
-            @JsonProperty("bucketCapabilities") List<BucketCapabilities> bucketCapabilities) {
-        super(name, BucketNodeLocator.VBUCKET, uri, streamingUri, nodeInfos, getPortInfos(portInfos), bucketCapabilities);
+            @JsonProperty("bucketCapabilities") List<BucketCapabilities> bucketCapabilities,
+            @JacksonInject("origin") NetworkAddress origin) {
+        super(uuid, name, BucketNodeLocator.VBUCKET, uri, streamingUri, nodeInfos, getPortInfos(portInfos), bucketCapabilities, origin);
         this.partitionInfo = partitionInfo;
         this.tainted = partitionInfo.tainted();
         List<NodeInfo> extendedNodeInfos = this.nodes(); // includes ports for SSL services
@@ -92,12 +96,12 @@ public class DefaultCouchbaseBucketConfig extends AbstractBucketConfig implement
     /**
      * Pre-computes a set of nodes that have primary partitions active.
      *
-     * @param nodeInfos  the list of nodes.
+     * @param nodeInfos the list of nodes.
      * @param partitions the partitions.
      * @return a set containing the addresses of nodes with primary partitions.
      */
     private static Set<NetworkAddress> buildNodesWithPrimaryPartitions(final List<NodeInfo> nodeInfos,
-                                                                       final List<Partition> partitions) {
+        final List<Partition> partitions) {
         Set<NetworkAddress> nodes = new HashSet<NetworkAddress>(nodeInfos.size());
         for (Partition partition : partitions) {
             int index = partition.master();
@@ -111,7 +115,7 @@ public class DefaultCouchbaseBucketConfig extends AbstractBucketConfig implement
     /**
      * Helper method to reference the partition hosts from the raw node list.
      *
-     * @param nodeInfos     the node infos.
+     * @param nodeInfos the node infos.
      * @param partitionInfo the partition info.
      * @return a ordered reference list for the partition hosts.
      */
@@ -251,13 +255,13 @@ public class DefaultCouchbaseBucketConfig extends AbstractBucketConfig implement
     @Override
     public String toString() {
         return "DefaultCouchbaseBucketConfig{"
-                + "name='" + name() + '\''
-                + ", locator=" + locator()
-                + ", uri='" + uri() + '\''
-                + ", streamingUri='" + streamingUri() + '\''
-                + ", nodeInfo=" + nodes()
-                + ", partitionInfo=" + partitionInfo
-                + ", tainted=" + tainted
-                + ", rev=" + rev + '}';
+            + "name='" + name() + '\''
+            + ", locator=" + locator()
+            + ", uri='" + uri() + '\''
+            + ", streamingUri='" + streamingUri() + '\''
+            + ", nodeInfo=" + nodes()
+            + ", partitionInfo=" + partitionInfo
+            + ", tainted=" + tainted
+            + ", rev=" + rev + '}';
     }
 }

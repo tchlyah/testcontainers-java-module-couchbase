@@ -33,6 +33,7 @@ import lombok.experimental.Wither;
 import org.jetbrains.annotations.NotNull;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.HttpWaitStrategy;
+import org.testcontainers.shaded.com.google.common.collect.Lists;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -270,7 +271,9 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
         logger().debug("Creating bucket admin user '{}'", bucketSetting.name());
         UserSettings userSettings = UserSettings.build()
                 .password(bucketSetting.password())
-                .roles(Collections.singletonList(new UserRole("bucket_admin", bucketSetting.name())));
+                .roles(Lists.newArrayList(
+                        new UserRole("bucket_admin", bucketSetting.name()),
+                        new UserRole("bucket_full_access", bucketSetting.name())));
         try {
             clusterManager.upsertUser(AuthDomain.LOCAL, bucketSetting.name(), userSettings);
         } catch (Exception e) {
@@ -335,7 +338,7 @@ public class CouchbaseContainer<SELF extends CouchbaseContainer<SELF>> extends G
     }
 
     private PortInfo createPortInfo() {
-        DefaultPortInfo portInfo = new DefaultPortInfo(new HashMap<>(), null);
+        DefaultPortInfo portInfo = new DefaultPortInfo(new HashMap<>(), null, null);
         try {
             portInfo.ports().put(ServiceType.VIEW, getMappedPort(VIEW_PORT));
             portInfo.ports().put(ServiceType.CONFIG, getMappedPort(CONFIG_PORT));

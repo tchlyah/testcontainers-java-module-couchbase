@@ -20,7 +20,7 @@
     <url>https://github.com/differentway/testcontainers-java-module-couchbase</url>
 
     <properties>
-        <couchbase.client.version>2.5.8</couchbase.client.version>
+        <couchbase.client.version>2.6.1</couchbase.client.version>
     </properties>
 
     <licenses>
